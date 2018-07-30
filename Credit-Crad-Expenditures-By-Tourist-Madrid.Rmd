@@ -1,0 +1,285 @@
+---
+title: "Credit card Expenditures Analysis"
+author: "Group G"
+date: "May 20, 2018"
+output: html_document
+---
+
+The dataset provided contains more than 10,000 credit card transactions performed by tourists in the city of Madrid during a month. focus on analyzing the different consumption patterns from tourists. The goal is to discover different insights from the data through data visualization (with GGPlot2) and then transform them into potential business outcomes. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(knitr)
+library(readxl)
+library (dplyr)
+library(dygraphs)
+library(xts)
+library(ggplot2)
+library(treemapify)
+library(ggpubr)
+library(gtable)
+library(grid)
+```
+
+## Data Loading
+
+```{r transactions}
+#setwd("D:/MBD/Data Visualization/Assignment_2")
+transactions<-data.frame(read.csv("madrid_transactions.csv"))
+str(transactions)
+
+
+
+transactions<-transactions[,2:ncol(transactions)]
+naVector<-sapply(transactions, function(x) sum(which(is.na(x))))
+naVector
+
+
+
+transactions$date<-as.POSIXlt(transactions$tx_date_proc)
+transactions$month<-as.factor(month(transactions$date))
+transactions$year<-as.factor(year(transactions$date))
+str(transactions)
+```
+## Loading Countries Data
+```{r}
+countries<-data.frame(read.csv("CountriesRegions.csv"))
+transactions<-merge(transactions, countries, by.x='customer_country', by.y='alpha.2')
+str(transactions)
+```
+# Analysis By Category
+
+After data preparation and understanding, we started analyzing the dataset from a
+general perspective narrowing then down to more specific business insights. The first
+graph shows in which categories tourists spend their money.
+```{r}
+div=1000
+sumByCat<-data.frame(aggregate(amount ~ category, transactions, sum))
+sumByCat<-sumByCat[order(-sumByCat$amount),]
+sumByCat
+CatPlot <- ggplot(sumByCat, aes(x=reorder(category,amount), y=amount/div)) + geom_bar(stat="identity", fill="steelblue")+coord_flip()+ labs(y = "Amount x 1000 Euros", x= "Category", title="Expenditures By Category")
+CatPlot
+others<-sumByCat[sumByCat$amount<30000,'category']
+```
+# Create graph with other goods and Sevices
+
+The graph above would not be shown to the CEO as there are too many categories and it
+does not help with decision making. This graph is solely for our initial exploratory
+purpose. Next step was to focus on the top 4 categories only, consolidating the
+remaining categories within "Others". Although top 3 could have also been good
+enough as they represent 80% of the total amount spent, there were some peculiarities in
+the transportation category as we are going to mention later in the report.
+```{r}
+transactions$hour<-as.numeric(transactions$hour)
+transactions$category<-as.character(transactions$category)
+transactions[transactions$category %in% others, 'category']<-'Others'
+transactions$category<-as.factor(transactions$category)
+sumByCat<-data.frame(aggregate(amount ~ category, transactions, sum))
+sumByCat<-sumByCat[order(-sumByCat$amount),]
+sumByCat
+CatPlot <- ggplot(sumByCat, aes(x=reorder(category,amount), y=amount/div)) + geom_bar(stat="identity", fill="steelblue")+coord_flip()+ labs(y = "Amount x 1000 Euros", x= "Category", title="Expenditures By Category")
+CatPlot
+```
+The graph above allows Citibank to visualize in "what" they should focus their effort
+on. To make effective partnerships and promotions possible, we then went on to finding
+out for "who". To do this, we used the same process to find out the most representative
+countries / regions in terms of expenditure.
+
+
+
+
+# Original Analysis by Countries
+
+In the graph below, we can see that the "share" of each country comparing to all
+countries in the dataset in terms of total amount spent. Each of these countries are
+colored by corresponding region, so we can better understand where these people are
+coming from, or at least for the most representative ones (which occupy bigger area in
+the graph). The goal of this figure is to show that the top 10 countries are very
+representative. Thus, we are going to continue the analysis by interpreting "who" the we
+should focus on.
+```{r}
+
+summaryByCountries <- transactions %>%
+select(region, name, amount) %>%
+group_by(region, name) %>%
+summarise(Total = sum(amount))
+summaryByCountries<-summaryByCountries[order(-summaryByCountries$Total),]
+summaryByCountries
+summaryByCountries$name<-as.character(summaryByCountries$name)
+summaryByCountries[summaryByCountries$name=='United Kingdom of Great Britain and Northern Ireland','name']<-'United Kingdom'
+summaryByCountries$name<-as.factor(summaryByCountries$name)
+ggplot(summaryByCountries, aes(area = Total, fill = region, label = name)) +
+  geom_treemap() +
+  geom_treemap_text(
+    fontface = "italic",
+    colour = "white",
+    place = "centre",
+    grow = TRUE
+  )
+```
+
+```{r}
+#write.csv(summaryByCountries, file = "D:/MBD/Data Visualization/Assignment_2/summaryByCountries.csv")
+```
+
+As we are curious about the top 10 countries in terms of total expenditure (here is where
+we narrow our analysis). By understanding them better, we can better target any of them
+considering their particular purchasing habits and behaviors.
+# Category Analysis for each Region for the top 5 regions and top 3 categories
+```{r}
+topCountries <- summaryByCountries[1:10, c('name','Total')]
+summary <- transactions %>%
+select(name,category, amount) %>%
+group_by(name,category) %>%
+summarise(totalAmount = sum(amount))
+summary
+summary<-merge(summary,topCountries, by.x='name', by.y='name')
+summary$percent<-round((summary$totalAmount/summary$Total)*100,2)
+summary$name<-as.character(summary$name)
+summary[summary$name=='United Kingdom of Great Britain and Northern Ireland','name']<-'United Kingdom'
+summary$name<-as.factor(summary$name)
+library(scales)
+summary$full<-100
+datm<-summary
+datm$full<-100
+ggplot(summary,aes(x = name, y = percent,fill = category, label = percent )) + 
+    geom_bar(position = "fill",stat = "identity", width = 0.4)  +
+    scale_y_continuous(labels = percent_format(),name = "Expenditures Percentage", position = "top")+ fill_palette(palette = "Set1")  +
+    coord_flip()+theme_gray() + theme(axis.title.y=element_blank())
+
+
+```
+As we saw previously, the United States has the highest total transaction amount.
+Complemented with the graph above, we can see that 20% of the Americans (USA)
+Data Visualization - Assignment 2
+Group G
+6
+expenditure goes to Transportation. Within the top 10 consumers, we can see particular,
+interesting behaviors and tendency, like: Brazil in "Accommodation", Finland in "Bars
+& restaurants" and China with the highest consumption of "Fashion & Shoes".
+More in-depth analysis in transaction becomes relevant; therefore, we later dived into
+the amount of transactions, per "country" and per "category" in order to come up with
+more specific, actionable insights. At this point, we built the graph #5 where our goal
+was to understand the "customer routine" during their days as tourists.
+There are some clear patterns: (i) "lunch" starts from 11h~16, (ii) Fashion & Shoes
+shopping higher interval is from 14h~20h, (in relatively terms even before this peak
+period, the category Fashion & Shoes already shows high amount of transactions
+starting mostly at 11h), (iii) Accommodation expenditure in early mornings (06h~09h)
+then it decreases until 16h and then become more or less stable.
+Figure 5: Number of transactions per hour per Categories
+
+# Expenditures by hour
+```{r}
+str(transactions)
+summaryByHour <- transactions %>%
+select(category, hour) %>%
+group_by(category, hour) %>%
+summarise(NTransactions = n())
+summaryByHour
+
+p <- ggplot(summaryByHour, aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs(y = "Transactions", x= "Hours", title="Number of Transactions Per Hour")+scale_x_continuous(limits = c(5,24))
+p
+```
+
+# Bubble map
+```{r}
+countriesAnalysis <- transactions %>%
+select(region, name, amount) %>%
+group_by(region, name) %>%
+summarise(Total = sum(amount), Ntransactions=n())
+countriesAnalysis<-countriesAnalysis[order(-countriesAnalysis$Total),]
+countriesAnalysis$average_ticket<-countriesAnalysis$Total/countriesAnalysis$Ntransactions
+
+#Normalization
+countriesAnalysis$average_ticket<-log(countriesAnalysis$average_ticket)*10
+countriesAnalysis$Total<-log(countriesAnalysis$Total)*10
+countriesAnalysis$name<-as.character(countriesAnalysis$name)
+countriesAnalysis[countriesAnalysis$name=='United Kingdom of Great Britain and Northern Ireland','name']<-'United Kingdom'
+countriesAnalysis$name<-as.factor(countriesAnalysis$name) 
+
+options(scipen=999)  
+theme_set(theme_bw()) 
+gg <- ggplot(countriesAnalysis[1:10,], aes(x=average_ticket, y=Total)) + 
+  geom_point(aes(col=name, size=Ntransactions)) + 
+  labs( y="Total Amount", 
+       x="average_ticket", 
+       title="Total Amount Vs Average ticket")
+
+
+plot(gg)
+```
+
+
+
+# Hour Analysis for top 4 countries
+```{r}
+summaryByCountryHour <- transactions %>%
+select(name,category, hour) %>%
+group_by(name,category, hour) %>%
+summarise(NTransactions = n())
+summaryByCountryHour<-summaryByCountryHour[order(-summaryByCountryHour$NTransactions),]
+
+p1 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='United States of America',], aes(hour, NTransactions, group = category,colour = category)) + geom_line(size = 1) + labs( title="USA Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+p2 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='United Kingdom of Great Britain and Northern Ireland',], aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs( title="UK Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+p3 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='China',], aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs( title="China Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+p4 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='France',], aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs(title="France Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+p5 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='Brazil',], aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs(title="Brazil Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+p6 <- ggplot(summaryByCountryHour[summaryByCountryHour$name=='Finland',], aes(hour, NTransactions, group = category,
+     colour = category)) + geom_line(size = 1) + labs(title="Finland Hourly Expenditure Analysis") + scale_x_continuous(limits = c(5,24))
+
+p1
+p2
+p3
+p4
+p5
+p6
+```
+
+
+# Analysis of Number of transactions VS total expenditures
+
+```{r}
+
+ExpAnalysis <- transactions %>%
+select(name,hour, category, amount) %>%
+group_by(hour,category, name) %>%
+summarise(Total = sum(amount), Ntransactions=n())
+```
+
+There are many potential business opportunities to be implemented, by observing
+spending habits: (i) Early lunch and Happy Hour for Americans, (ii) Average Chinese
+likes purchasing Fashion & Shoes later than average tourist, (iii) Later Accommodation
+payment with Dinner and Happy Hour from 20h until 24h for the British people and (iv)
+Regular lunch time for the French foreigner.
+For every country mentioned, Citibank could do a partnership with hotels, restaurants,
+bars, and even fashion retails to encourage spending and do targeted actions, creating
+strategies depending on the country of origin.
+Another interesting business opportunity can be found in the graph #7 below, where
+even though people from United States have similar amount of transactions during the
+"lunch" and "dinner" time, the expenditure in each of the moments are very distinct.
+Bearing that in mind, it would be more attractive to those consumers to have Happy-
+Hours deals and promotions instead of lunch time.
+
+```{r}
+ggplot(ExpAnalysis[ExpAnalysis$name=='United States of America' & ExpAnalysis$category=='Bars & restaurants' ,]) + 
+  geom_line(mapping = aes(x = hour, y = Total), size = 1, color = "green") +
+  geom_line(mapping = aes(x = hour, y = Ntransactions*100), size = 1, color = "blue") +
+  scale_y_continuous(name = "Amount Spent", 
+    sec.axis = sec_axis(~./100, name = "Number of Transactions", 
+      labels = function(b) { paste0(round(b, 0) )}))+ 
+  theme(axis.text.x = element_text(size=15, face="bold", angle = 0, vjust = 1), 
+        axis.title.x = element_text(size=15, face="bold"),
+        axis.text.y = element_text(size=15,  color = 'darkgreen'),
+        axis.title.y = element_text(size=15,  color = 'darkgreen'),
+        axis.text.y.right = element_text(size=15, face="bold", color = 'blue'),
+        axis.title.y.right = element_text(size=15, face="bold", color = 'blue')) 
+```
+
+
